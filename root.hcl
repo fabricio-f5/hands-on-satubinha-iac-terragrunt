@@ -7,7 +7,7 @@
 locals {
   aws_region  = "us-east-1"
   project     = "hands-on-satubinha"
-  tf_version  = "~> 1.9"
+  tf_version  = "~> 1.10"
   aws_version = "~> 5.0"
 }
 

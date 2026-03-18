@@ -44,7 +44,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.9.8"
+          terraform_version: "1.10.5"
 
       - name: Setup Terragrunt
         run: |
@@ -108,16 +108,3 @@ jobs:
 
       - name: Terragrunt Output
         run: terragrunt output -json
-```
-
----
-
-### Configura o GitHub Environment para o prod
-
-Antes do push vai ao GitHub configurar a aprovação manual:
-```
-github.com/fabricio-f5/hands-on-satubinha-iac-terragrunt
-→ Settings → Environments → New environment
-→ Nome: prod
-→ Required reviewers: fabricio-f5
-→ Save protection rules

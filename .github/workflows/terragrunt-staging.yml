@@ -1,0 +1,109 @@
+# .github/workflows/terragrunt-staging.yml
+# ------------------------------------------------------------
+# Pipeline staging — disparo manual com opções de apply/destroy.
+# Autenticação via OIDC — sem credenciais estáticas.
+# ------------------------------------------------------------
+
+name: Terragrunt Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Executar terragrunt apply?'
+        required: false
+        default: 'false'
+      plan_destroy:
+        description: 'Executar terragrunt plan destroy?'
+        required: false
+        default: 'false'
+      destroy:
+        description: 'Executar terragrunt destroy?'
+        required: false
+        default: 'false'
+
+jobs:
+  terragrunt-staging:
+    name: Staging
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: staging
+      cancel-in-progress: true
+    defaults:
+      run:
+        working-directory: environments/staging
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Setup Terragrunt
+        run: |
+          curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.67.0/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+          terragrunt --version
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActions-${{ github.run_id }}
+
+      - name: Terragrunt Init
+        run: terragrunt init -reconfigure
+
+      - name: Terragrunt Validate
+        run: terragrunt validate
+
+      - name: Checkov Scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: terraform
+          soft_fail: true
+          output_format: cli
+          output_file_path: checkov-report.txt
+          download_external_modules: false
+
+      - name: Upload Checkov report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkov-report-staging-${{ github.run_id }}
+          path: checkov-report.txt
+          retention-days: 30
+
+      - name: Terragrunt Plan
+        run: terragrunt plan -out=tfplan
+
+      - name: Conditional Terragrunt Apply
+        if: ${{ github.event.inputs.apply == 'true' }}
+        run: |
+          echo "Executando terragrunt apply..."
+          terragrunt apply -auto-approve tfplan
+
+      - name: Conditional Terragrunt Plan Destroy
+        if: ${{ github.event.inputs.plan_destroy == 'true' }}
+        run: |
+          echo "Executando terragrunt plan destroy..."
+          terragrunt plan -destroy -out=tfplan_destroy
+          terragrunt show -no-color tfplan_destroy
+
+      - name: Conditional Terragrunt Destroy
+        if: ${{ github.event.inputs.destroy == 'true' }}
+        run: |
+          echo "Executando terragrunt destroy..."
+          terragrunt destroy -auto-approve
+
+      - name: Terragrunt Output
+        run: terragrunt output -json

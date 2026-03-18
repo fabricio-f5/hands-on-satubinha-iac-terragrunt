@@ -70,7 +70,7 @@ jobs:
         with:
           directory: .
           framework: terraform
-          config_file: ../../.checkov.yaml
+          config_file: ${{ github.workspace }}/.checkov.yaml
           soft_fail: true
           output_format: cli
           output_file_path: checkov-report.txt

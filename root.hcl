@@ -1,4 +1,4 @@
-# terragrunt.hcl (raiz)
+# root.hcl
 # ------------------------------------------------------------
 # Configuração partilhada por todos os ambientes.
 # Nenhum ambiente precisa de backend.tf ou providers.tf próprio.
@@ -11,10 +11,6 @@ locals {
   aws_version = "~> 5.0"
 }
 
-# Gera o backend.tf em cada ambiente automaticamente.
-# A key do state é calculada pelo path do ambiente:
-#   environments/dev  → dev/terraform.tfstate
-#   environments/prod → prod/terraform.tfstate
 remote_state {
   backend = "s3"
   generate = {
@@ -26,11 +22,10 @@ remote_state {
     key          = "${path_relative_to_include()}/terraform.tfstate"
     region       = local.aws_region
     encrypt      = true
-    use_lockfile = true  # lockfile nativo — sem DynamoDB
+    use_lockfile = true
   }
 }
 
-# Gera o providers.tf em cada ambiente automaticamente.
 generate "provider" {
   path      = "provider.tf"
   if_exists = "overwrite_terragrunt"
@@ -57,4 +52,12 @@ terraform {
   }
 }
 EOF
+}
+
+# Desactiva prompts interactivos — necessário para CI/CD
+terraform {
+  extra_arguments "non_interactive" {
+    commands  = get_terraform_commands_that_need_input()
+    arguments = ["-input=false"]
+  }
 }

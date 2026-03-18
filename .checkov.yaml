@@ -1,0 +1,13 @@
+# .checkov.yaml
+# ------------------------------------------------------------
+# Supressões documentadas — findings conhecidos e aceites.
+# Cada supressão tem justificação explícita.
+# ------------------------------------------------------------
+
+skip-check:
+  - CKV_AWS_144   # S3 cross-region replication — over-engineering para este projecto
+  - CKV_AWS_145   # S3 KMS encryption — AES256 suficiente para este contexto
+  - CKV_AWS_18    # S3 access logging — requer bucket dedicado, fora do scope
+  - CKV2_AWS_62   # S3 event notifications — não aplicável ao módulo genérico
+  - CKV2_AWS_61   # S3 lifecycle — não aplicável ao módulo genérico
+  - CKV2_AWS_5    # SG attached — falso positivo, SG associado via input no módulo EC2

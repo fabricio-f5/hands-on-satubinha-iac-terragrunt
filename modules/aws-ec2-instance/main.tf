@@ -5,6 +5,8 @@ resource "aws_instance" "main" {
   subnet_id              = data.aws_ssm_parameter.subnet_id.value
   vpc_security_group_ids = [data.aws_ssm_parameter.security_group_id.value]
   iam_instance_profile   = var.iam_instance_profile
+  monitoring             = true   # CKV_AWS_126 — detailed monitoring
+  ebs_optimized          = true   # CKV_AWS_135 — EBS optimized
 
   metadata_options {
     http_endpoint               = "enabled"
@@ -17,6 +19,6 @@ resource "aws_instance" "main" {
   }
 
   tags = {
-    Name  = var.instance_name
+    Name = var.instance_name
   }
 }

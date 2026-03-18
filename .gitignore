@@ -1,0 +1,24 @@
+cd ~/hands-on-satubinha-iac-terragrunt
+
+cat > .gitignore << 'EOF'
+# Terragrunt cache
+**/.terragrunt-cache
+
+# Terraform
+**/.terraform
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.tfplan
+
+# Ficheiros gerados pelo Terragrunt
+**/backend.tf
+**/provider.tf
+
+# Credenciais e valores sensíveis
+*.tfvars.json
+.env
+
+# OS
+.DS_Store
+EOF

@@ -61,7 +61,7 @@ jobs:
           role-session-name: GitHubActions-${{ github.run_id }}
 
       - name: Terragrunt Init
-        run: terragrunt init -reconfigure
+        run: terragrunt --terragrunt-non-interactive init -reconfigure
 
       - name: Terragrunt Validate
         run: terragrunt validate

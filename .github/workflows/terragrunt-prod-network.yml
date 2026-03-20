@@ -1,0 +1,119 @@
+# .github/workflows/terragrunt-prod-network.yml
+# ------------------------------------------------------------
+# Layer 1 — Network do ambiente prod.
+#
+# Trigger: APENAS manual via workflow_dispatch.
+# Aprovação obrigatória via GitHub Environment "prod-network".
+# ------------------------------------------------------------
+name: "[Prod] Network"
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Acção a executar'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - plan_destroy
+          - destroy
+
+jobs:
+  network:
+    name: "Prod — Network (${{ github.event.inputs.action }})"
+    runs-on: ubuntu-latest
+    environment: prod-network        # ← aprovação manual obrigatória no GitHub
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: prod-network
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Setup Terragrunt
+        run: |
+          curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.67.0/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActions-${{ github.run_id }}
+
+      - name: Terraform Format Check
+        working-directory: environments/prod/network
+        run: terraform fmt -check
+
+      - name: Terragrunt Validate
+        working-directory: environments/prod/network
+        run: terragrunt --terragrunt-non-interactive validate
+
+      - name: Checkov Scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: environments/prod/network
+          framework: terraform
+          config_file: ${{ github.workspace }}/.checkov.yaml
+          soft_fail: true
+          output_format: cli
+          output_file_path: checkov-report.txt
+          download_external_modules: false
+
+      - name: Upload Checkov report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkov-report-prod-network-${{ github.run_id }}
+          path: checkov-report.txt
+          retention-days: 30
+
+      - name: Terragrunt Plan
+        if: ${{ github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply' }}
+        working-directory: environments/prod/network
+        run: terragrunt --terragrunt-non-interactive plan -out=tfplan
+
+      - name: Terragrunt Apply
+        if: ${{ github.event.inputs.action == 'apply' }}
+        working-directory: environments/prod/network
+        run: |
+          echo "Aplicando network do prod..."
+          terragrunt --terragrunt-non-interactive apply -auto-approve tfplan
+
+      - name: Terragrunt Output
+        if: ${{ github.event.inputs.action == 'apply' }}
+        working-directory: environments/prod/network
+        run: terragrunt --terragrunt-non-interactive output -json
+
+      - name: Terragrunt Plan Destroy
+        if: ${{ github.event.inputs.action == 'plan_destroy' }}
+        working-directory: environments/prod/network
+        run: |
+          echo "Calculando impacto do destroy — nenhum recurso será removido..."
+          terragrunt --terragrunt-non-interactive plan -destroy -out=tfplan_destroy
+          terragrunt --terragrunt-non-interactive show -no-color tfplan_destroy
+
+      - name: Confirm Destroy Intent
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: |
+          echo "⚠️  DESTROY solicitado por: ${{ github.actor }}"
+          echo "⚠️  Ambiente: prod — Network"
+          echo "⚠️  Commit: ${{ github.sha }}"
+          echo "⚠️  Esta operação foi aprovada manualmente via GitHub Environment."
+
+      - name: Terragrunt Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        working-directory: environments/prod/network
+        run: terragrunt --terragrunt-non-interactive destroy -auto-approve

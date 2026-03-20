@@ -1,0 +1,151 @@
+# .github/workflows/terragrunt-dev-ec2.yml
+# ------------------------------------------------------------
+# Layer 2 — EC2 do ambiente dev.
+#
+# Trigger automático: push para main (só ficheiros relevantes).
+# Trigger manual: workflow_dispatch para apply/destroy.
+#
+# Depende do network estar aplicado — lê outputs via
+# dependency blocks no terragrunt.hcl.
+# ------------------------------------------------------------
+name: "[Dev] EC2"
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'environments/dev/ec2/**'
+      - 'modules/aws-ec2-instance/**'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Acção a executar'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - plan_destroy
+          - destroy
+
+jobs:
+  ec2:
+    name: "Dev — EC2 (${{ github.event_name == 'push' && 'auto-apply' || github.event.inputs.action }})"
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: dev-ec2
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Setup Terragrunt
+        run: |
+          curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.67.0/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+          terragrunt --version
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActions-${{ github.run_id }}
+
+      # ------------------------------------------------------------
+      # Qualidade de código — corre sempre, independente da acção
+      # ------------------------------------------------------------
+      - name: Terraform Format Check
+        working-directory: environments/dev/ec2
+        run: terraform fmt -check
+
+      - name: Terragrunt Validate
+        working-directory: environments/dev/ec2
+        run: terragrunt --terragrunt-non-interactive validate
+
+      - name: Checkov Scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: environments/dev/ec2
+          framework: terraform
+          config_file: ${{ github.workspace }}/.checkov.yaml
+          soft_fail: true
+          output_format: cli
+          output_file_path: checkov-report.txt
+          download_external_modules: false
+
+      - name: Upload Checkov report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkov-report-dev-ec2-${{ github.run_id }}
+          path: checkov-report.txt
+          retention-days: 30
+
+      # ------------------------------------------------------------
+      # Plan — corre em push, plan e apply
+      # Não corre em plan_destroy nem destroy
+      # ------------------------------------------------------------
+      - name: Terragrunt Plan
+        if: ${{ github.event_name == 'push' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply' }}
+        working-directory: environments/dev/ec2
+        run: terragrunt --terragrunt-non-interactive plan -out=tfplan
+
+      # ------------------------------------------------------------
+      # Apply — automático em push, manual em workflow_dispatch
+      # ------------------------------------------------------------
+      - name: Terragrunt Apply (auto — push)
+        if: ${{ github.event_name == 'push' }}
+        working-directory: environments/dev/ec2
+        run: |
+          echo "Auto-apply triggered by push to main..."
+          terragrunt --terragrunt-non-interactive apply -auto-approve tfplan
+
+      - name: Terragrunt Apply (manual)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply' }}
+        working-directory: environments/dev/ec2
+        run: |
+          echo "Aplicando EC2 do dev..."
+          terragrunt --terragrunt-non-interactive apply -auto-approve tfplan
+
+      - name: Terragrunt Output
+        if: ${{ github.event_name == 'push' || github.event.inputs.action == 'apply' }}
+        working-directory: environments/dev/ec2
+        run: terragrunt --terragrunt-non-interactive output -json
+
+      # ------------------------------------------------------------
+      # Plan Destroy — mostra o que seria destruído, sem destruir
+      # ------------------------------------------------------------
+      - name: Terragrunt Plan Destroy
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan_destroy' }}
+        working-directory: environments/dev/ec2
+        run: |
+          echo "Calculando impacto do destroy — nenhum recurso será removido..."
+          terragrunt --terragrunt-non-interactive plan -destroy -out=tfplan_destroy
+          terragrunt --terragrunt-non-interactive show -no-color tfplan_destroy
+
+      # ------------------------------------------------------------
+      # Destroy — protecção contra acidente
+      # ------------------------------------------------------------
+      - name: Confirm Destroy Intent
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
+        run: |
+          echo "⚠️  DESTROY solicitado por: ${{ github.actor }}"
+          echo "⚠️  Ambiente: dev — EC2"
+          echo "⚠️  Commit: ${{ github.sha }}"
+
+      - name: Terragrunt Destroy
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
+        working-directory: environments/dev/ec2
+        run: |
+          terragrunt --terragrunt-non-interactive destroy -auto-approve

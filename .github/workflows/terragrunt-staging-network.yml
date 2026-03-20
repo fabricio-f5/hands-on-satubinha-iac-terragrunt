@@ -1,0 +1,115 @@
+# .github/workflows/terragrunt-staging-network.yml
+# ------------------------------------------------------------
+# Layer 1 — Network do ambiente staging.
+# Trigger: APENAS manual via workflow_dispatch.
+# ------------------------------------------------------------
+name: "[Staging] Network"
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Acção a executar'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - plan_destroy
+          - destroy
+
+jobs:
+  network:
+    name: "Staging — Network (${{ github.event.inputs.action }})"
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: staging-network
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Setup Terragrunt
+        run: |
+          curl -Lo terragrunt https://github.com/gruntwork-io/terragrunt/releases/download/v0.67.0/terragrunt_linux_amd64
+          chmod +x terragrunt
+          sudo mv terragrunt /usr/local/bin/
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActions-${{ github.run_id }}
+
+      - name: Terraform Format Check
+        working-directory: environments/staging/network
+        run: terraform fmt -check
+
+      - name: Terragrunt Validate
+        working-directory: environments/staging/network
+        run: terragrunt --terragrunt-non-interactive validate
+
+      - name: Checkov Scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: environments/staging/network
+          framework: terraform
+          config_file: ${{ github.workspace }}/.checkov.yaml
+          soft_fail: true
+          output_format: cli
+          output_file_path: checkov-report.txt
+          download_external_modules: false
+
+      - name: Upload Checkov report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkov-report-staging-network-${{ github.run_id }}
+          path: checkov-report.txt
+          retention-days: 30
+
+      - name: Terragrunt Plan
+        if: ${{ github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply' }}
+        working-directory: environments/staging/network
+        run: terragrunt --terragrunt-non-interactive plan -out=tfplan
+
+      - name: Terragrunt Apply
+        if: ${{ github.event.inputs.action == 'apply' }}
+        working-directory: environments/staging/network
+        run: |
+          echo "Aplicando network do staging..."
+          terragrunt --terragrunt-non-interactive apply -auto-approve tfplan
+
+      - name: Terragrunt Output
+        if: ${{ github.event.inputs.action == 'apply' }}
+        working-directory: environments/staging/network
+        run: terragrunt --terragrunt-non-interactive output -json
+
+      - name: Terragrunt Plan Destroy
+        if: ${{ github.event.inputs.action == 'plan_destroy' }}
+        working-directory: environments/staging/network
+        run: |
+          echo "Calculando impacto do destroy — nenhum recurso será removido..."
+          terragrunt --terragrunt-non-interactive plan -destroy -out=tfplan_destroy
+          terragrunt --terragrunt-non-interactive show -no-color tfplan_destroy
+
+      - name: Confirm Destroy Intent
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: |
+          echo "⚠️  DESTROY solicitado por: ${{ github.actor }}"
+          echo "⚠️  Ambiente: staging — Network"
+          echo "⚠️  Commit: ${{ github.sha }}"
+
+      - name: Terragrunt Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        working-directory: environments/staging/network
+        run: terragrunt --terragrunt-non-interactive destroy -auto-approve

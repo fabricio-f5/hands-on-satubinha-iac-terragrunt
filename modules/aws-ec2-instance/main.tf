@@ -5,8 +5,8 @@ resource "aws_instance" "main" {
   subnet_id              = var.subnet_id
   vpc_security_group_ids = [var.security_group_id]
   iam_instance_profile   = var.iam_instance_profile
-  monitoring             = true   # CKV_AWS_126 — detailed monitoring
-  ebs_optimized          = true   # CKV_AWS_135 — EBS optimized
+  monitoring             = true # CKV_AWS_126 — detailed monitoring
+  ebs_optimized          = true # CKV_AWS_135 — EBS optimized
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"

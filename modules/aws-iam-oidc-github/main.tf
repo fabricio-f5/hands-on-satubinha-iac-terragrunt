@@ -16,7 +16,7 @@ resource "aws_iam_openid_connect_provider" "github" {
   }
 
   lifecycle {
-    prevent_destroy = true  # ← impede destroy acidental
+    prevent_destroy = true # ← impede destroy acidental
   }
 }
 

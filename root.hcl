@@ -3,7 +3,6 @@
 # Configuração partilhada por todos os ambientes.
 # Nenhum ambiente precisa de backend.tf ou providers.tf próprio.
 # ------------------------------------------------------------
-
 locals {
   aws_region  = "us-east-1"
   project     = "hands-on-satubinha"
@@ -32,7 +31,6 @@ generate "provider" {
   contents  = <<EOF
 provider "aws" {
   region = "${local.aws_region}"
-
   default_tags {
     tags = {
       Project     = "${local.project}"
@@ -41,7 +39,6 @@ provider "aws" {
     }
   }
 }
-
 terraform {
   required_version = "${local.tf_version}"
   required_providers {
@@ -54,10 +51,25 @@ terraform {
 EOF
 }
 
-# Desactiva prompts interactivos — necessário para CI/CD
+# ------------------------------------------------------------
+# Terraform CLI arguments partilhados
+# ------------------------------------------------------------
 terraform {
+  # Desactiva prompts interactivos — necessário para CI/CD
   extra_arguments "non_interactive" {
     commands  = get_terraform_commands_that_need_input()
     arguments = ["-input=false"]
   }
+
+  # Provider cache partilhado — evita re-download do provider
+  # em cada layer/ambiente. Todos os layers partilham a mesma
+  # cópia do hashicorp/aws em vez de baixar ~400MB por run.
+  # O directório é criado pelo Ansible no provisionamento da EC2.
+  extra_arguments "provider_cache" {
+    commands = get_terraform_commands_that_need_init()
+    env_vars = {
+      TF_PLUGIN_CACHE_DIR = "/var/jenkins_home/.terraform-plugin-cache"
+    }
+  }
 }
+

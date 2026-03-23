@@ -66,7 +66,7 @@ terraform {
   # cópia do hashicorp/aws em vez de baixar ~400MB por run.
   # O directório é criado pelo Ansible no provisionamento da EC2.
   extra_arguments "provider_cache" {
-    commands = get_terraform_commands_that_need_init()
+    commands = ["init", "validate", "plan", "apply", "destroy", "import", "push", "refresh"]
     env_vars = {
       TF_PLUGIN_CACHE_DIR = "/var/jenkins_home/.terraform-plugin-cache"
     }
